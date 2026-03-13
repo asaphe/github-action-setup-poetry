@@ -1,0 +1,115 @@
+name: "Setup Poetry"
+description: "Install Poetry and manage Python dependencies with caching"
+
+inputs:
+  version:
+    description: "Poetry version to install"
+    required: false
+    default: "2.0.1"
+  working-directory:
+    description: "Working directory for poetry commands"
+    required: false
+    default: "python"
+  dependency-groups:
+    description: 'Poetry dependency groups to install. Examples: "--with dev", "--with dev,test", "--without dev", "--only dev", or "" for main only'
+    required: false
+    default: "--with dev"
+  python-version:
+    description: "Python version to use"
+    required: false
+    default: "3.12.8"
+  setup-pipx:
+    description: "Whether to setup pipx (for self-hosted runners)"
+    required: false
+    default: "false"
+  cache-key-suffix:
+    description: "Additional suffix for cache key (for parallel jobs)"
+    required: false
+    default: ""
+
+outputs:
+  cache-hit:
+    description: "Whether the poetry cache was hit"
+    value: ${{ steps.poetry_cache.outputs.cache-hit }}
+  poetry-version:
+    description: "Installed Poetry version"
+    value: ${{ steps.poetry_info.outputs.version }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Setup Python
+      uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+      with:
+        python-version: ${{ inputs.python-version }}
+        cache: "pip"
+
+    - name: Setup pipx (if requested)
+      if: inputs.setup-pipx == 'true'
+      shell: bash
+      run: |
+        set -euo pipefail
+        python3 -m pip install --user pipx
+        python3 -m pipx ensurepath
+        echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+    - name: Install Poetry
+      uses: snok/install-poetry@76e04a911780d5b312d89783f7b1cd627778900a # v1.4.1
+      with:
+        version: ${{ inputs.version }}
+
+    - name: Configure Poetry for in-project virtualenvs
+      shell: bash
+      run: |
+        set -euo pipefail
+        poetry config virtualenvs.in-project true
+        poetry config virtualenvs.create true
+
+    - name: Get Poetry info
+      id: poetry_info
+      shell: bash
+      run: |
+        set -euo pipefail
+        echo "version=$(poetry --version | cut -d' ' -f3)" >> $GITHUB_OUTPUT
+        echo "Poetry installed: $(poetry --version)"
+        echo "Virtualenvs in-project: $(poetry config virtualenvs.in-project)"
+
+    - name: Restore Poetry cache
+      id: poetry_cache
+      uses: actions/cache/restore@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+      with:
+        path: |
+          ${{ inputs.working-directory }}/.venv
+        key: poetry-venv-${{ runner.os }}-py${{ inputs.python-version }}-${{ inputs.working-directory }}-${{ hashFiles(format('{0}/poetry.lock', inputs.working-directory)) }}${{ inputs.cache-key-suffix }}
+        restore-keys: |
+          poetry-venv-${{ runner.os }}-py${{ inputs.python-version }}-${{ inputs.working-directory }}-
+
+    - name: Install dependencies
+      shell: bash
+      working-directory: ${{ inputs.working-directory }}
+      run: |
+        set -euo pipefail
+        poetry install ${{ inputs.dependency-groups }}
+
+    - name: Save Poetry cache
+      if: steps.poetry_cache.outputs.cache-hit != 'true'
+      uses: actions/cache/save@0400d5f644dc74513175e3cd8d07132dd4860809 # v4.2.4
+      with:
+        path: |
+          ${{ inputs.working-directory }}/.venv
+        key: ${{ steps.poetry_cache.outputs.cache-primary-key }}
+
+    - name: Report cache performance
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ "${{ steps.poetry_cache.outputs.cache-hit }}" == "true" ]]; then
+          echo "✅ Poetry cache hit - virtualenv restored from cache"
+        else
+          echo "⚡ Poetry cache miss - virtualenv created and cached"
+        fi
+        echo "📦 Poetry version: ${{ steps.poetry_info.outputs.version }}"
+        echo "📁 Working directory: ${{ inputs.working-directory }}"
+        echo "🔧 Dependency groups: ${{ inputs.dependency-groups }}"
+        VENV_SIZE=$(du -sh "${{ inputs.working-directory }}/.venv" 2>/dev/null | cut -f1 || echo "N/A")
+        echo "📊 Virtualenv size: ${VENV_SIZE}"
