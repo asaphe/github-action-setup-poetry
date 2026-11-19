@@ -89,7 +89,9 @@ runs:
       working-directory: ${{ inputs.working-directory }}
       run: |
         set -euo pipefail
-        poetry install ${{ inputs.dependency-groups }}
+        poetry install ${INPUTS_DEPENDENCY_GROUPS}
+      env:
+        INPUTS_DEPENDENCY_GROUPS: ${{ inputs.dependency-groups }}
 
     - name: Save Poetry cache
       if: steps.poetry_cache.outputs.cache-hit != 'true'
@@ -109,7 +111,10 @@ runs:
           echo "⚡ Poetry cache miss - virtualenv created and cached"
         fi
         echo "📦 Poetry version: ${{ steps.poetry_info.outputs.version }}"
-        echo "📁 Working directory: ${{ inputs.working-directory }}"
-        echo "🔧 Dependency groups: ${{ inputs.dependency-groups }}"
-        VENV_SIZE=$(du -sh "${{ inputs.working-directory }}/.venv" 2>/dev/null | cut -f1 || echo "N/A")
+        echo "📁 Working directory: ${INPUTS_WORKING_DIRECTORY}"
+        echo "🔧 Dependency groups: ${INPUTS_DEPENDENCY_GROUPS}"
+        VENV_SIZE=$(du -sh "${INPUTS_WORKING_DIRECTORY}/.venv" 2>/dev/null | cut -f1 || echo "N/A")
         echo "📊 Virtualenv size: ${VENV_SIZE}"
+      env:
+        INPUTS_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        INPUTS_DEPENDENCY_GROUPS: ${{ inputs.dependency-groups }}
